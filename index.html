@@ -134,7 +134,7 @@
                 return new Intl.NumberFormat('ko-KR').format(num);
             }
 
-            // 종목명 실시간 자동완성 검색
+            // 종목명 실시간 자동완성 드롭다운 검색
             stockNameInput.addEventListener('input', (e) => {
                 const keyword = e.target.value.trim();
                 clearTimeout(searchTimeout);
@@ -182,7 +182,7 @@
                 }, 200);
             });
 
-            // Enter 키 누르면 조회
+            // Enter 키 입력 시 즉시 조회
             stockNameInput.addEventListener('keypress', (e) => {
                 if (e.key === 'Enter') {
                     searchDropdown.classList.add('hidden');
@@ -197,7 +197,7 @@
             });
 
             async function fetchRealtimeStockPrice() {
-                // 종목명 입력값 또는 종목코드 중 있는 값 전달
+                // 종목명 입력값 또는 종목코드 중 있는 값 사용 (6자리 유효성 alert 제거됨)
                 const queryVal = stockNameInput.value.trim() || stockCodeInput.value.trim();
                 if (!queryVal) {
                     alert('종목명 또는 종목코드를 입력해주세요.');
