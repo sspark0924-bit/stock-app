@@ -13,7 +13,7 @@ export default async function handler(req, res) {
 
   code = decodeURIComponent(code).trim();
 
-  // 1. 종목명 입력 시 네이버 검색 API로 6자리 코드 자동 변환
+  // 1. 종목명 입력 시 네이버 검색 API로 6자리 코드 검색 (예: 카카오 -> 035720)
   if (!/^\d{6}$/.test(code)) {
     try {
       const searchUrl = `https://ac.finance.naver.com/ac?q=${encodeURIComponent(code)}&q_enc=utf-8&st=111&r_format=json&r_enc=utf-8`;
@@ -33,7 +33,7 @@ export default async function handler(req, res) {
     }
   }
 
-  // 2. 네이버 모바일 API 수신 (Referer 및 Mobile User-Agent 필수 명시)
+  // 2. 네이버 모바일 API 수신 (보안 방화벽 우회 헤더 적용)
   try {
     const naverUrl = `https://m.stock.naver.com/api/stock/${code}/basic`;
     const response = await fetch(naverUrl, {
@@ -53,14 +53,14 @@ export default async function handler(req, res) {
     }
   } catch (e) {}
 
-  // 3. 야후 파이낸스 대체 수신
+  // 3. 야후 파이낸스 차트 API 2차 시도
   const symbols = [`${code}.KS`, `${code}.KQ`];
   for (const symbol of symbols) {
     try {
       const yahooUrl = `https://query2.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1m&range=1d`;
       const response = await fetch(yahooUrl, {
         headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
         }
       });
 
@@ -81,6 +81,6 @@ export default async function handler(req, res) {
 
   return res.status(500).json({
     success: false,
-    error: '실시간 시세를 불러올 수 없습니다. 종목명 또는 코드를 확인해 주세요.'
+    error: '실시간 시세를 불러올 수 없습니다.'
   });
 }
