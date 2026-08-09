@@ -23,7 +23,7 @@
         <header class="bg-slate-800/80 backdrop-blur border-b border-slate-700/60 p-4 sticky top-0 z-20 flex justify-between items-center">
             <div>
                 <h1 class="text-xl font-bold text-amber-400 flex items-center gap-2">
-                    <i class="fa-solid fa-chart-line"></i> Stock Matrix <span class="text-xs bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded-full border border-emerald-500/30 flex items-center gap-1 inline-flex"><i class="fa-solid fa-wifi text-[10px]"></i> Live</span>
+                    <i class="fa-solid fa-chart-line"></i> Stock Matrix <span class="text-xs bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded-full border border-emerald-500/30 flex items-center gap-1 inline-flex"><i class="fa-solid fa-cloud text-[10px]"></i> Cloud Live</span>
                 </h1>
                 <p class="text-xs text-slate-400 mt-0.5">실시간 시세 연동 ±0.5% 20단계 계산기</p>
             </div>
@@ -134,7 +134,7 @@
                 return new Intl.NumberFormat('ko-KR').format(num);
             }
 
-            // 종목명 실시간 자동완성 (CORS 프록시 적용)
+            // 종목명 실시간 자동완성
             stockNameInput.addEventListener('input', (e) => {
                 const keyword = e.target.value.trim();
                 clearTimeout(searchTimeout);
@@ -146,10 +146,8 @@
 
                 searchTimeout = setTimeout(async () => {
                     try {
-                        const targetUrl = encodeURIComponent(`https://ac.finance.naver.com/ac?q=${keyword}&q_enc=utf-8&st=111&r_format=json&r_enc=utf-8`);
-                        const res = await fetch(`https://api.allorigins.win/get?url=${targetUrl}`);
-                        const proxyData = await res.json();
-                        const data = JSON.parse(proxyData.contents);
+                        const res = await fetch(`https://ac.finance.naver.com/ac?q=${encodeURIComponent(keyword)}&q_enc=utf-8&st=111&r_format=json&r_enc=utf-8`);
+                        const data = await res.json();
                         const items = data?.items?.[0] || [];
 
                         if (items.length > 0) {
@@ -181,7 +179,7 @@
                     } catch (err) {
                         console.error('Search error:', err);
                     }
-                }, 300);
+                }, 200);
             });
 
             stockNameInput.addEventListener('keypress', (e) => {
@@ -197,58 +195,38 @@
                 }
             });
 
-            // 시세 수신 함수 (AllOrigins CORS 프록시 경유)
+            // Vercel 백엔드 API 수신
             async function fetchRealtimeStockPrice() {
-                let code = stockCodeInput.value.trim();
-                const nameQuery = stockNameInput.value.trim();
+                const queryVal = stockNameInput.value.trim() || stockCodeInput.value.trim();
+                if (!queryVal) {
+                    alert('종목명 또는 종목코드를 입력해주세요.');
+                    return;
+                }
 
                 refreshIcon.classList.add('fa-spin');
                 btnFetch.disabled = true;
-                fetchStatus.innerHTML = `<i class="fa-solid fa-spinner fa-spin text-amber-400"></i> 프록시 경유 실시간 수신 중...`;
+                fetchStatus.innerHTML = `<i class="fa-solid fa-spinner fa-spin text-amber-400"></i> 실시간 시세 요청 중...`;
 
                 try {
-                    // 종목명인 경우 코드 찾기
-                    if (!/^\d{6}$/.test(code) && nameQuery) {
-                        const searchTarget = encodeURIComponent(`https://ac.finance.naver.com/ac?q=${nameQuery}&q_enc=utf-8&st=111&r_format=json&r_enc=utf-8`);
-                        const searchRes = await fetch(`https://api.allorigins.win/get?url=${searchTarget}`);
-                        const searchProxy = await searchRes.json();
-                        const searchData = JSON.parse(searchProxy.contents);
-                        const matchedItem = searchData?.items?.[0]?.[0];
-                        if (matchedItem) {
-                            code = matchedItem[1][0];
-                            stockCodeInput.value = code;
-                            stockNameInput.value = matchedItem[0][0];
-                        }
-                    }
+                    const response = await fetch(`/api/stock?code=${encodeURIComponent(queryVal)}`);
+                    if (!response.ok) throw new Error(`HTTP 오류 (${response.status})`);
 
-                    if (!/^\d{6}$/.test(code)) {
-                        throw new Error('올바른 6자리 종목코드가 필요합니다.');
-                    }
-
-                    // 네이버 모바일 API 호출 (CORS 프록시)
-                    const stockTarget = encodeURIComponent(`https://m.stock.naver.com/api/stock/${code}/basic`);
-                    const response = await fetch(`https://api.allorigins.win/get?url=${stockTarget}`);
+                    const res = await response.json();
                     
-                    if (!response.ok) throw new Error('CORS 프록시 서버 응답 오류');
-
-                    const proxyData = await response.json();
-                    const data = JSON.parse(proxyData.contents);
-
-                    if (data && data.nowValue) {
-                        const price = parseInt(data.nowValue.replace(/,/g, ''), 10);
-                        currentPriceInput.value = price;
-                        if (data.stockName) stockNameInput.value = data.stockName;
+                    if (res && res.success && res.price) {
+                        currentPriceInput.value = res.price;
+                        stockCodeInput.value = res.code;
+                        if (res.name) stockNameInput.value = res.name;
 
                         const now = new Date();
                         const timeStr = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}:${now.getSeconds().toString().padStart(2, '0')}`;
-                        fetchStatus.innerHTML = `<span class="text-emerald-400 font-semibold"><i class="fa-solid fa-circle-check"></i> ${stockNameInput.value} (${code}) 연동 성공 (${timeStr})</span>`;
-                        
+                        fetchStatus.innerHTML = `<span class="text-emerald-400 font-semibold"><i class="fa-solid fa-circle-check"></i> ${stockNameInput.value} (${res.code}) 실시간 연동 완료 (${timeStr})</span>`;
+
                         renderMatrix();
                         setTimeout(scrollToCurrentRow, 150);
                     } else {
-                        throw new Error('시세 파싱 실패');
+                        throw new Error(res.error || '시세 응답 오류');
                     }
-
                 } catch (err) {
                     console.error('Fetch Error:', err);
                     fetchStatus.innerHTML = `<span class="text-red-400"><i class="fa-solid fa-triangle-exclamation"></i> ${err.message}</span>`;
