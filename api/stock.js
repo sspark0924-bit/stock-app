@@ -15,7 +15,6 @@ export default async function handler(req, res) {
     });
   }
 
-  // Next/Vercel이 이미 디코딩한 값을 넘겨줄 수 있으므로 안전하게 처리
   try {
     code = decodeURIComponent(code).trim();
   } catch (e) {
@@ -24,27 +23,36 @@ export default async function handler(req, res) {
 
   // -----------------------------
   // 종목명 → 종목코드 변환
+  // (ac.finance.naver.com 은 더 이상 사용 불가 -> m.stock.naver.com으로 교체)
   // -----------------------------
   if (!/^\d{6}$/.test(code)) {
     try {
       const searchUrl =
-        `https://ac.finance.naver.com/ac?q=${encodeURIComponent(code)}&q_enc=utf-8&st=111&r_format=json&r_enc=utf-8`;
+        `https://m.stock.naver.com/front-api/search/autoComplete?query=${encodeURIComponent(code)}&target=stock,index,marketindicator,coin,ipo`;
 
       const searchRes = await fetch(searchUrl, {
-        headers: { 'User-Agent': 'Mozilla/5.0' }
+        headers: {
+          'User-Agent':
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+          'Accept': 'application/json'
+        }
       });
 
-      const searchData = await searchRes.json();
-      const item = searchData?.items?.[0]?.[0];
+      if (!searchRes.ok) {
+        throw new Error(`검색 API HTTP ${searchRes.status}`);
+      }
 
-      if (!item) {
+      const searchData = await searchRes.json();
+      const item = searchData?.result?.items?.[0];
+
+      if (!item?.code) {
         return res.status(404).json({
           success: false,
           error: '종목을 찾을 수 없습니다.'
         });
       }
 
-      code = item[1][0];
+      code = item.code;
     } catch (e) {
       console.error('종목 검색 오류', e);
       return res.status(500).json({
@@ -94,39 +102,38 @@ export default async function handler(req, res) {
   }
 
   // -----------------------------
-  // 네이버 HTML 백업
+  // 네이버 모바일 API 백업 (HTML 파싱 대신 JSON API 사용)
   // -----------------------------
   try {
-    const url = `https://finance.naver.com/item/main.naver?code=${code}`;
-    const response = await fetch(url, {
+    const infoUrl = `https://m.stock.naver.com/front-api/v1/stock/basicInfo?stockCode=${code}`;
+
+    const response = await fetch(infoUrl, {
       headers: {
         'User-Agent':
           'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-        'Accept-Language': 'ko-KR,ko;q=0.9'
+        'Accept': 'application/json'
       }
     });
 
-    const html = await response.text();
+    if (response.ok) {
+      const data = await response.json();
+      const priceRaw = data?.now ?? data?.closePrice;
+      const name = data?.stockName || data?.stockNameEng || code;
 
-    // 정규식 이스케이프 수정: \\s -> \s, \\d -> \d, <\\/span> -> <\/span>
-    const priceMatch = html.match(
-      /<p class="no_today">[\s\S]*?<span class="blind">([\d,]+)<\/span>/
-    );
-
-    const nameMatch = html.match(
-      /<title>(.*?)\s*:\s*네이버페이 증권<\/title>/
-    );
-
-    if (priceMatch) {
-      return res.status(200).json({
-        success: true,
-        code,
-        name: nameMatch ? nameMatch[1].trim() : code,
-        price: parseInt(priceMatch[1].replace(/,/g, ''), 10)
-      });
+      if (priceRaw) {
+        const price = parseInt(String(priceRaw).replace(/,/g, ''), 10);
+        if (!isNaN(price)) {
+          return res.status(200).json({
+            success: true,
+            code,
+            name,
+            price
+          });
+        }
+      }
+    } else {
+      console.warn(`네이버 basicInfo 실패: HTTP ${response.status}`);
     }
-
-    console.warn('네이버 백업 파싱 실패: priceMatch 없음');
   } catch (e) {
     console.error('네이버 오류', e);
   }
