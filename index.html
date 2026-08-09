@@ -131,19 +131,28 @@
 
             async function fetchRealtimeStockPrice() {
                 const rawCode = stockCodeInput.value.trim();
-                if (!rawCode || rawCode.length !== 6) return;
+                if (!rawCode || rawCode.length !== 6) {
+                    alert('올바른 6자리 종목코드를 입력해주세요.');
+                    return;
+                }
 
                 refreshIcon.classList.add('fa-spin');
                 btnFetch.disabled = true;
                 fetchStatus.innerHTML = `<i class="fa-solid fa-spinner fa-spin text-amber-400"></i> 서버리스 API 수신 중...`;
 
                 try {
+                    // 백엔드 Vercel API 호출
                     const response = await fetch(`/api/stock?code=${rawCode}`);
+                    
+                    if (!response.ok) {
+                        throw new Error(`HTTP 오류 (${response.status})`);
+                    }
+
                     const res = await response.json();
                     
-                    if (res.success) {
+                    if (res && res.success && res.price) {
                         currentPriceInput.value = res.price;
-                        stockNameInput.value = res.name;
+                        stockNameInput.value = res.name || stockNameInput.value;
 
                         const now = new Date();
                         const timeStr = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}:${now.getSeconds().toString().padStart(2, '0')}`;
@@ -152,10 +161,11 @@
                         renderMatrix();
                         setTimeout(scrollToCurrentRow, 150);
                     } else {
-                        throw new Error(res.error);
+                        throw new Error(res.error || '시세 응답 형식 오류');
                     }
                 } catch (err) {
-                    fetchStatus.innerHTML = `<span class="text-red-400"><i class="fa-solid fa-triangle-exclamation"></i> 시세 수신 실패</span>`;
+                    console.error('Fetch Error:', err);
+                    fetchStatus.innerHTML = `<span class="text-red-400"><i class="fa-solid fa-triangle-exclamation"></i> 시세 수신 실패: ${err.message}</span>`;
                 } finally {
                     refreshIcon.classList.remove('fa-spin');
                     btnFetch.disabled = false;
