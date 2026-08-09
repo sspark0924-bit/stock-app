@@ -107,255 +107,288 @@
     </div>
 
     <script>
-        document.addEventListener('DOMContentLoaded', () => {
-            const stockCodeInput = document.getElementById('stock-code');
-            const stockNameInput = document.getElementById('stock-name');
-            const searchDropdown = document.getElementById('search-dropdown');
-            const currentPriceInput = document.getElementById('current-price');
-            const purchasePriceInput = document.getElementById('purchase-price');
-            const quantityInput = document.getElementById('quantity');
-            
-            const sumInvest = document.getElementById('sum-invest');
-            const sumEval = document.getElementById('sum-eval');
-            const sumPnl = document.getElementById('sum-pnl');
+document.addEventListener('DOMContentLoaded', () => {
 
-            const matrixTbody = document.getElementById('matrix-tbody');
-            const btnFetch = document.getElementById('btn-fetch');
-            const refreshIcon = document.getElementById('refresh-icon');
-            const fetchStatus = document.getElementById('fetch-status');
-            const btnJump = document.getElementById('btn-jump');
-            const btnReset = document.getElementById('btn-reset');
-            const presetBtns = document.querySelectorAll('.preset-btn');
+    const stockCodeInput = document.getElementById('stock-code');
+    const stockNameInput = document.getElementById('stock-name');
+    const currentPriceInput = document.getElementById('current-price');
+    const purchasePriceInput = document.getElementById('purchase-price');
+    const quantityInput = document.getElementById('quantity');
 
-            let searchTimeout = null;
+    const sumInvest = document.getElementById('sum-invest');
+    const sumEval = document.getElementById('sum-eval');
+    const sumPnl = document.getElementById('sum-pnl');
 
-            function formatNumber(num) {
-                if (num === null || isNaN(num)) return '-';
-                return new Intl.NumberFormat('ko-KR').format(num);
+    const matrixTbody = document.getElementById('matrix-tbody');
+    const btnFetch = document.getElementById('btn-fetch');
+    const refreshIcon = document.getElementById('refresh-icon');
+    const fetchStatus = document.getElementById('fetch-status');
+    const btnJump = document.getElementById('btn-jump');
+    const btnReset = document.getElementById('btn-reset');
+    const presetBtns = document.querySelectorAll('.preset-btn');
+
+    function formatNumber(num) {
+        if (num === null || isNaN(num)) return '-';
+        return new Intl.NumberFormat('ko-KR').format(num);
+    }
+
+    // -----------------------------
+    // Enter 키 조회
+    // -----------------------------
+    stockNameInput.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') {
+            fetchRealtimeStockPrice();
+        }
+    });
+
+    // -----------------------------
+    // 실시간 시세 조회
+    // -----------------------------
+    async function fetchRealtimeStockPrice() {
+
+        const query =
+            stockNameInput.value.trim() ||
+            stockCodeInput.value.trim();
+
+        if (!query) {
+            alert('종목명 또는 종목코드를 입력해주세요.');
+            return;
+        }
+
+        refreshIcon.classList.add('fa-spin');
+        btnFetch.disabled = true;
+
+        fetchStatus.innerHTML =
+            '<span class="text-amber-400"><i class="fa-solid fa-spinner fa-spin"></i> 시세 조회 중...</span>';
+
+        try {
+
+            const response = await fetch(
+                `/api/stock?code=${encodeURIComponent(query)}`
+            );
+
+            const res = await response.json();
+
+            if (!response.ok || !res.success) {
+                throw new Error(res.error || `HTTP ${response.status}`);
             }
 
-            // 종목명 실시간 자동완성 검색
-            stockNameInput.addEventListener('input', (e) => {
-                const keyword = e.target.value.trim();
-                clearTimeout(searchTimeout);
+            currentPriceInput.value = res.price;
+            stockCodeInput.value = res.code;
 
-                if (keyword.length < 1) {
-                    searchDropdown.classList.add('hidden');
-                    return;
-                }
-
-                searchTimeout = setTimeout(async () => {
-                    try {
-                        const res = await fetch(`https://ac.finance.naver.com/ac?q=${encodeURIComponent(keyword)}&q_enc=utf-8&st=111&r_format=json&r_enc=utf-8`);
-                        const data = await res.json();
-                        const items = data?.items?.[0] || [];
-
-                        if (items.length > 0) {
-                            let html = '';
-                            items.slice(0, 6).forEach(item => {
-                                const name = item[0][0];
-                                const code = item[1][0];
-                                html += `
-                                    <div class="search-item p-2 hover:bg-slate-700 cursor-pointer flex justify-between items-center text-xs" data-code="${code}" data-name="${name}">
-                                        <span class="text-slate-100 font-medium">${name}</span>
-                                        <span class="text-amber-400 font-mono text-[11px]">${code}</span>
-                                    </div>
-                                `;
-                            });
-                            searchDropdown.innerHTML = html;
-                            searchDropdown.classList.remove('hidden');
-
-                            document.querySelectorAll('.search-item').forEach(el => {
-                                el.addEventListener('click', () => {
-                                    stockNameInput.value = el.dataset.name;
-                                    stockCodeInput.value = el.dataset.code;
-                                    searchDropdown.classList.add('hidden');
-                                    fetchRealtimeStockPrice();
-                                });
-                            });
-                        } else {
-                            searchDropdown.classList.add('hidden');
-                        }
-                    } catch (err) {
-                        console.error('Search error:', err);
-                    }
-                }, 200);
-            });
-
-            stockNameInput.addEventListener('keypress', (e) => {
-                if (e.key === 'Enter') {
-                    searchDropdown.classList.add('hidden');
-                    fetchRealtimeStockPrice();
-                }
-            });
-
-            document.addEventListener('click', (e) => {
-                if (!stockNameInput.contains(e.target) && !searchDropdown.contains(e.target)) {
-                    searchDropdown.classList.add('hidden');
-                }
-            });
-
-            async function fetchRealtimeStockPrice() {
-                const queryVal = stockNameInput.value.trim() || stockCodeInput.value.trim();
-                if (!queryVal) {
-                    alert('종목명 또는 종목코드를 입력해주세요.');
-                    return;
-                }
-
-                refreshIcon.classList.add('fa-spin');
-                btnFetch.disabled = true;
-                fetchStatus.innerHTML = `<i class="fa-solid fa-spinner fa-spin text-amber-400"></i> 서버 API 수신 중...`;
-
-                try {
-                    const response = await fetch(`/api/stock?code=${encodeURIComponent(queryVal)}`);
-                    if (!response.ok) throw new Error(`HTTP 에러 (${response.status})`);
-
-                    const res = await response.json();
-                    if (res && res.success && res.price) {
-                        currentPriceInput.value = res.price;
-                        stockCodeInput.value = res.code;
-                        if (res.name) stockNameInput.value = res.name;
-
-                        const now = new Date();
-                        const timeStr = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}:${now.getSeconds().toString().padStart(2, '0')}`;
-                        fetchStatus.innerHTML = `<span class="text-emerald-400 font-semibold"><i class="fa-solid fa-circle-check"></i> ${stockNameInput.value} (${res.code}) 연결 완료 (${timeStr})</span>`;
-
-                        renderMatrix();
-                        setTimeout(scrollToCurrentRow, 150);
-                    } else {
-                        throw new Error(res.error || '시세 응답 오류');
-                    }
-                } catch (err) {
-                    console.error('Fetch Error:', err);
-                    fetchStatus.innerHTML = `<span class="text-red-400"><i class="fa-solid fa-triangle-exclamation"></i> 시세 수신 실패: ${err.message}</span>`;
-                } finally {
-                    refreshIcon.classList.remove('fa-spin');
-                    btnFetch.disabled = false;
-                }
+            if (res.name) {
+                stockNameInput.value = res.name;
             }
 
-            function renderMatrix() {
-                const currentPrice = parseFloat(currentPriceInput.value) || 0;
-                const purchasePrice = parseFloat(purchasePriceInput.value) || 0;
-                const quantity = parseInt(quantityInput.value) || 0;
+            const now = new Date();
 
-                const totalInvest = purchasePrice * quantity;
-                const totalEval = currentPrice * quantity;
-                const totalPnl = totalEval - totalInvest;
-                const totalRoi = purchasePrice > 0 ? ((currentPrice - purchasePrice) / purchasePrice) * 100 : 0;
-
-                sumInvest.textContent = `${formatNumber(totalInvest)}원`;
-                sumEval.textContent = `${formatNumber(totalEval)}원`;
-
-                if (purchasePrice > 0 && quantity > 0) {
-                    const pnlSign = totalPnl > 0 ? '+' : '';
-                    const colorClass = totalPnl > 0 ? 'text-red-400' : (totalPnl < 0 ? 'text-blue-400' : 'text-slate-300');
-                    sumPnl.className = `font-bold text-sm ${colorClass}`;
-                    sumPnl.textContent = `${pnlSign}${formatNumber(totalPnl)}원 (${pnlSign}${totalRoi.toFixed(2)}%)`;
-                } else {
-                    sumPnl.className = 'font-bold text-sm text-slate-400';
-                    sumPnl.textContent = '-';
-                }
-
-                const steps = 20;
-                const stepPercent = 0.005;
-                let html = '';
-
-                for (let i = steps; i >= -steps; i--) {
-                    const rate = i * stepPercent;
-                    const targetPrice = Math.round(currentPrice * (1 + rate));
-                    const rateFromCurrent = (rate * 100).toFixed(1);
-
-                    let roiPercent = null;
-                    let expectedPnl = null;
-
-                    if (purchasePrice > 0) {
-                        roiPercent = ((targetPrice - purchasePrice) / purchasePrice) * 100;
-                        expectedPnl = (targetPrice - purchasePrice) * quantity;
-                    }
-
-                    const isCurrentRow = (i === 0);
-
-                    let stepLabel = '';
-                    if (i > 0) stepLabel = `+${rateFromCurrent}% (${i}단계)`;
-                    else if (i < 0) stepLabel = `${rateFromCurrent}% (${Math.abs(i)}단계)`;
-                    else stepLabel = `★ 현재가 (0.0%)`;
-
-                    let rowBgClass = 'hover:bg-slate-800/50';
-                    let rateTextColor = 'text-slate-400';
-                    let roiTextColor = 'text-slate-400';
-
-                    if (i > 0) rateTextColor = 'text-red-400';
-                    else if (i < 0) rateTextColor = 'text-blue-400';
-
-                    if (roiPercent !== null) {
-                        if (roiPercent > 0) roiTextColor = 'text-red-400 font-medium';
-                        else if (roiPercent < 0) roiTextColor = 'text-blue-400 font-medium';
-                        else roiTextColor = 'text-slate-300';
-                    }
-
-                    if (isCurrentRow) {
-                        rowBgClass = 'bg-amber-500/20 border-2 border-amber-500 highlight-row';
-                    }
-
-                    html += `
-                        <tr id="${isCurrentRow ? 'current-price-row' : ''}" class="${rowBgClass} transition-colors">
-                            <td class="py-2.5 px-3 text-center font-medium ${isCurrentRow ? 'text-amber-300 font-bold' : 'text-slate-300'}">
-                                ${stepLabel}
-                            </td>
-                            <td class="py-2.5 px-3 text-right font-semibold ${isCurrentRow ? 'text-amber-400 text-base' : 'text-slate-100'}">
-                                ${formatNumber(targetPrice)}원
-                            </td>
-                            <td class="py-2.5 px-3 text-right ${rateTextColor} font-medium">
-                                ${i > 0 ? '+' : ''}${rateFromCurrent}%
-                            </td>
-                            <td class="py-2.5 px-3 text-right ${roiTextColor}">
-                                ${roiPercent !== null ? (roiPercent > 0 ? '+' : '') + roiPercent.toFixed(2) + '%' : '-'}
-                            </td>
-                            <td class="py-2.5 px-3 text-right ${roiTextColor}">
-                                ${expectedPnl !== null ? (expectedPnl > 0 ? '+' : '') + formatNumber(expectedPnl) + '원' : '-'}
-                            </td>
-                        </tr>
-                    `;
-                }
-
-                matrixTbody.innerHTML = html;
-            }
-
-            function scrollToCurrentRow() {
-                const currentRow = document.getElementById('current-price-row');
-                if (currentRow) {
-                    currentRow.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                }
-            }
-
-            btnFetch.addEventListener('click', fetchRealtimeStockPrice);
-            [currentPriceInput, purchasePriceInput, quantityInput].forEach(input => input.addEventListener('input', renderMatrix));
-            btnJump.addEventListener('click', scrollToCurrentRow);
-
-            btnReset.addEventListener('click', () => {
-                stockCodeInput.value = '005930';
-                stockNameInput.value = '삼성전자';
-                currentPriceInput.value = 70000;
-                purchasePriceInput.value = 65000;
-                quantityInput.value = 100;
-                renderMatrix();
-                setTimeout(scrollToCurrentRow, 100);
-            });
-
-            presetBtns.forEach(btn => {
-                btn.addEventListener('click', () => {
-                    stockCodeInput.value = btn.dataset.code;
-                    stockNameInput.value = btn.dataset.name;
-                    purchasePriceInput.value = btn.dataset.buy;
-                    quantityInput.value = btn.dataset.qty;
-                    fetchRealtimeStockPrice();
-                });
-            });
+            fetchStatus.innerHTML =
+                `<span class="text-emerald-400"><i class="fa-solid fa-circle-check"></i> ${res.name} (${res.code}) 연결 완료 ${now.toLocaleTimeString('ko-KR')}</span>`;
 
             renderMatrix();
+
+            setTimeout(scrollToCurrentRow, 100);
+
+        } catch (err) {
+
+            console.error(err);
+
+            fetchStatus.innerHTML =
+                `<span class="text-red-400"><i class="fa-solid fa-triangle-exclamation"></i> ${err.message}</span>`;
+
+        } finally {
+
+            refreshIcon.classList.remove('fa-spin');
+            btnFetch.disabled = false;
+
+        }
+
+    }
+
+    // -----------------------------
+    // 매트릭스 렌더링
+    // -----------------------------
+    function renderMatrix() {
+
+        const currentPrice = parseFloat(currentPriceInput.value) || 0;
+        const purchasePrice = parseFloat(purchasePriceInput.value) || 0;
+        const quantity = parseInt(quantityInput.value) || 0;
+
+        const totalInvest = purchasePrice * quantity;
+        const totalEval = currentPrice * quantity;
+        const totalPnl = totalEval - totalInvest;
+        const totalRoi =
+            purchasePrice > 0
+                ? ((currentPrice - purchasePrice) / purchasePrice) * 100
+                : 0;
+
+        sumInvest.textContent = `${formatNumber(totalInvest)}원`;
+        sumEval.textContent = `${formatNumber(totalEval)}원`;
+
+        if (purchasePrice > 0 && quantity > 0) {
+
+            const pnlSign = totalPnl > 0 ? '+' : '';
+
+            const colorClass =
+                totalPnl > 0
+                    ? 'text-red-400'
+                    : totalPnl < 0
+                        ? 'text-blue-400'
+                        : 'text-slate-300';
+
+            sumPnl.className = `font-bold text-sm ${colorClass}`;
+
+            sumPnl.textContent =
+                `${pnlSign}${formatNumber(totalPnl)}원 (${pnlSign}${totalRoi.toFixed(2)}%)`;
+
+        } else {
+
+            sumPnl.className = 'font-bold text-sm text-slate-400';
+            sumPnl.textContent = '-';
+
+        }
+
+        const steps = 20;
+        const stepPercent = 0.005;
+
+        let html = '';
+
+        for (let i = steps; i >= -steps; i--) {
+
+            const rate = i * stepPercent;
+
+            const targetPrice = Math.round(currentPrice * (1 + rate));
+
+            const rateFromCurrent = (rate * 100).toFixed(1);
+
+            let roiPercent = null;
+            let expectedPnl = null;
+
+            if (purchasePrice > 0) {
+                roiPercent =
+                    ((targetPrice - purchasePrice) / purchasePrice) * 100;
+                expectedPnl =
+                    (targetPrice - purchasePrice) * quantity;
+            }
+
+            const isCurrentRow = i === 0;
+
+            let stepLabel = '';
+
+            if (i > 0) {
+                stepLabel = `+${rateFromCurrent}% (${i}단계)`;
+            } else if (i < 0) {
+                stepLabel = `${rateFromCurrent}% (${Math.abs(i)}단계)`;
+            } else {
+                stepLabel = '★ 현재가 (0.0%)';
+            }
+
+            let rowBgClass = 'hover:bg-slate-800/50';
+            let rateTextColor = 'text-slate-400';
+            let roiTextColor = 'text-slate-400';
+
+            if (i > 0) rateTextColor = 'text-red-400';
+            else if (i < 0) rateTextColor = 'text-blue-400';
+
+            if (roiPercent !== null) {
+                if (roiPercent > 0)
+                    roiTextColor = 'text-red-400 font-medium';
+                else if (roiPercent < 0)
+                    roiTextColor = 'text-blue-400 font-medium';
+                else
+                    roiTextColor = 'text-slate-300';
+            }
+
+            if (isCurrentRow) {
+                rowBgClass =
+                    'bg-amber-500/20 border-2 border-amber-500 highlight-row';
+            }
+
+            html += `
+            <tr id="${isCurrentRow ? 'current-price-row' : ''}" class="${rowBgClass} transition-colors">
+                <td class="py-2.5 px-3 text-center font-medium ${isCurrentRow ? 'text-amber-300 font-bold' : 'text-slate-300'}">
+                    ${stepLabel}
+                </td>
+                <td class="py-2.5 px-3 text-right font-semibold ${isCurrentRow ? 'text-amber-400 text-base' : 'text-slate-100'}">
+                    ${formatNumber(targetPrice)}원
+                </td>
+                <td class="py-2.5 px-3 text-right ${rateTextColor} font-medium">
+                    ${i > 0 ? '+' : ''}${rateFromCurrent}%
+                </td>
+                <td class="py-2.5 px-3 text-right ${roiTextColor}">
+                    ${roiPercent !== null ? (roiPercent > 0 ? '+' : '') + roiPercent.toFixed(2) + '%' : '-'}
+                </td>
+                <td class="py-2.5 px-3 text-right ${roiTextColor}">
+                    ${expectedPnl !== null ? (expectedPnl > 0 ? '+' : '') + formatNumber(expectedPnl) + '원' : '-'}
+                </td>
+            </tr>
+            `;
+        }
+
+        matrixTbody.innerHTML = html;
+    }
+
+    // -----------------------------
+    // 현재가 위치 이동
+    // -----------------------------
+    function scrollToCurrentRow() {
+
+        const currentRow =
+            document.getElementById('current-price-row');
+
+        if (currentRow) {
+            currentRow.scrollIntoView({
+                behavior: 'smooth',
+                block: 'center'
+            });
+        }
+    }
+
+    // -----------------------------
+    // 이벤트
+    // -----------------------------
+    btnFetch.addEventListener('click', fetchRealtimeStockPrice);
+
+    [currentPriceInput, purchasePriceInput, quantityInput]
+        .forEach(input =>
+            input.addEventListener('input', renderMatrix)
+        );
+
+    btnJump.addEventListener('click', scrollToCurrentRow);
+
+    btnReset.addEventListener('click', () => {
+
+        stockCodeInput.value = '005930';
+        stockNameInput.value = '삼성전자';
+        currentPriceInput.value = 70000;
+        purchasePriceInput.value = 65000;
+        quantityInput.value = 100;
+
+        renderMatrix();
+
+        setTimeout(scrollToCurrentRow, 100);
+
+    });
+
+    presetBtns.forEach(btn => {
+
+        btn.addEventListener('click', () => {
+
+            stockCodeInput.value = btn.dataset.code;
+            stockNameInput.value = btn.dataset.name;
+            purchasePriceInput.value = btn.dataset.buy;
+            quantityInput.value = btn.dataset.qty;
+
             fetchRealtimeStockPrice();
+
         });
-    </script>
+
+    });
+
+    renderMatrix();
+    fetchRealtimeStockPrice();
+
+});
+</script>
 </body>
 </html>
