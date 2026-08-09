@@ -13,16 +13,18 @@ export default async function handler(req, res) {
 
   code = code.trim();
 
-  // 입력값이 6자리 숫자가 아니면 (종목명인 경우) 네이버 검색 API로 6자리 코드 찾기
+  // 1. 입력값이 6자리 숫자가 아닌 경우 (종목명인 경우) 종목코드 자동 검색
   if (!/^\d{6}$/.test(code)) {
     try {
       const searchUrl = `https://ac.finance.naver.com/ac?q=${encodeURIComponent(code)}&q_enc=utf-8&st=111&r_format=json&r_enc=utf-8`;
-      const searchRes = await fetch(searchUrl);
+      const searchRes = await fetch(searchUrl, {
+        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' }
+      });
       const searchData = await searchRes.json();
       const matchedItem = searchData?.items?.[0]?.[0];
 
       if (matchedItem) {
-        code = matchedItem[1][0]; // 6자리 종목코드로 교체 (예: 카카오 -> 035720)
+        code = matchedItem[1][0]; // 예: 카카오 -> 035720
       } else {
         return res.status(400).json({ success: false, error: `'${req.query.code}' 종목을 찾을 수 없습니다.` });
       }
@@ -31,7 +33,7 @@ export default async function handler(req, res) {
     }
   }
 
-  // 야후 파이낸스 API 호출 (코스피 .KS / 코스닥 .KQ)
+  // 2. 야후 파이낸스 API 호출 (.KS 코스피 / .KQ 코스닥)
   const symbols = [`${code}.KS`, `${code}.KQ`];
 
   for (const symbol of symbols) {
@@ -62,7 +64,7 @@ export default async function handler(req, res) {
     }
   }
 
-  // 네이버 증권 대체 엔드포인트 시도
+  // 3. 네이버 증권 대체 경로 시도
   try {
     const naverUrl = `https://polling.finance.naver.com/api/realtime/domestic/stock/${code}`;
     const response = await fetch(naverUrl, {
