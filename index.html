@@ -192,7 +192,7 @@
             });
 
             async function fetchRealtimeStockPrice() {
-                const rawCode = stockCodeInput.value.trim();
+                const rawCode = stockNameInput.value.trim() || stockCodeInput.value.trim();
                 if (!rawCode || rawCode.length !== 6) {
                     alert('올바른 6자리 종목코드를 입력해주세요.');
                     return;
