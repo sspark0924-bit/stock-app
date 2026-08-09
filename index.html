@@ -23,7 +23,7 @@
         <header class="bg-slate-800/80 backdrop-blur border-b border-slate-700/60 p-4 sticky top-0 z-20 flex justify-between items-center">
             <div>
                 <h1 class="text-xl font-bold text-amber-400 flex items-center gap-2">
-                    <i class="fa-solid fa-chart-line"></i> Stock Matrix <span class="text-xs bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded-full border border-emerald-500/30 flex items-center gap-1 inline-flex"><i class="fa-solid fa-bolt text-[10px]"></i> Direct API</span>
+                    <i class="fa-solid fa-chart-line"></i> Stock Matrix <span class="text-xs bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded-full border border-emerald-500/30 flex items-center gap-1 inline-flex"><i class="fa-solid fa-bolt text-[10px]"></i> Ver 3.0</span>
                 </h1>
                 <p class="text-xs text-slate-400 mt-0.5">실시간 시세 연동 ±0.5% 20단계 계산기</p>
             </div>
@@ -32,7 +32,7 @@
 
         <section class="p-4 bg-slate-800/40 border-b border-slate-800 space-y-3">
             <div>
-                <label class="block text-xs font-semibold text-slate-400 mb-1">원클릭 실시간 조회</label>
+                <label class="block text-xs font-semibold text-slate-400 mb-1">원클릭 종목 선택</label>
                 <div class="flex gap-2 overflow-x-auto pb-1 text-xs">
                     <button class="preset-btn bg-slate-700 hover:bg-slate-600 px-3 py-1.5 rounded-full text-slate-200 transition whitespace-nowrap" data-code="005930" data-name="삼성전자" data-buy="68000" data-qty="100">삼성전자 (005930)</button>
                     <button class="preset-btn bg-slate-700 hover:bg-slate-600 px-3 py-1.5 rounded-full text-slate-200 transition whitespace-nowrap" data-code="000660" data-name="SK하이닉스" data-buy="175000" data-qty="50">SK하이닉스 (000660)</button>
@@ -47,9 +47,8 @@
                     <input type="text" id="stock-code" value="005930" maxlength="6" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-amber-400 font-mono text-center focus:outline-none focus:border-amber-500">
                 </div>
                 <div class="col-span-5 sm:col-span-6 relative">
-                    <label for="stock-name" class="block text-[10px] text-slate-400 mb-0.5">종목명 검색</label>
-                    <input type="text" id="stock-name" value="삼성전자" placeholder="종목명 입력 (예: 카카오)" autocomplete="off" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-amber-500">
-                    <div id="search-dropdown" class="hidden absolute left-0 right-0 top-full mt-1 bg-slate-800 border border-slate-700 rounded-lg shadow-xl z-50 max-h-48 overflow-y-auto divide-y divide-slate-700/50"></div>
+                    <label for="stock-name" class="block text-[10px] text-slate-400 mb-0.5">종목명</label>
+                    <input type="text" id="stock-name" value="삼성전자" placeholder="종목명" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-amber-500">
                 </div>
                 <div class="col-span-3 sm:col-span-3 flex items-end h-full pt-4">
                     <button id="btn-fetch" class="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-semibold py-1.5 px-2 rounded-lg text-xs transition flex items-center justify-center gap-1 shadow-md">
@@ -110,7 +109,6 @@
         document.addEventListener('DOMContentLoaded', () => {
             const stockCodeInput = document.getElementById('stock-code');
             const stockNameInput = document.getElementById('stock-name');
-            const searchDropdown = document.getElementById('search-dropdown');
             const currentPriceInput = document.getElementById('current-price');
             const purchasePriceInput = document.getElementById('purchase-price');
             const quantityInput = document.getElementById('quantity');
@@ -127,147 +125,56 @@
             const btnReset = document.getElementById('btn-reset');
             const presetBtns = document.querySelectorAll('.preset-btn');
 
-            let searchTimeout = null;
-
             function formatNumber(num) {
                 if (num === null || isNaN(num)) return '-';
                 return new Intl.NumberFormat('ko-KR').format(num);
             }
 
-            // CORS 우회용 JSONP 헬퍼 함수
-            function fetchJsonp(url) {
-                return new Promise((resolve, reject) => {
-                    const callbackName = 'jsonp_cb_' + Math.random().toString(36).substring(2, 10);
-                    const script = document.createElement('script');
-
-                    window[callbackName] = (data) => {
-                        delete window[callbackName];
-                        if (document.body.contains(script)) document.body.removeChild(script);
-                        resolve(data);
-                    };
-
-                    script.onerror = () => {
-                        delete window[callbackName];
-                        if (document.body.contains(script)) document.body.removeChild(script);
-                        reject(new Error('네트워크 연동 실패'));
-                    };
-
-                    const delimiter = url.includes('?') ? '&' : '?';
-                    script.src = `${url}${delimiter}callback=${callbackName}`;
-                    document.body.appendChild(script);
-                });
-            }
-
-            // 종목명 실시간 자동완성 검색
-            stockNameInput.addEventListener('input', (e) => {
-                const keyword = e.target.value.trim();
-                clearTimeout(searchTimeout);
-
-                if (keyword.length < 1) {
-                    searchDropdown.classList.add('hidden');
+            // 시세 수신 함수: 네이버증권 웹페이지 HTML 파싱 (CORS 우회 오픈 엔드포인트 적용)
+            async function fetchRealtimeStockPrice() {
+                const code = stockCodeInput.value.trim();
+                if (!code || code.length !== 6) {
+                    alert('올바른 6자리 종목코드를 입력해주세요.');
                     return;
                 }
 
-                searchTimeout = setTimeout(async () => {
-                    try {
-                        const searchUrl = `https://ac.finance.naver.com/ac?q=${encodeURIComponent(keyword)}&q_enc=utf-8&st=111&r_format=json&r_enc=utf-8`;
-                        const res = await fetchJsonp(searchUrl);
-                        const items = res?.items?.[0] || [];
-
-                        if (items.length > 0) {
-                            let html = '';
-                            items.slice(0, 6).forEach(item => {
-                                const name = item[0][0];
-                                const code = item[1][0];
-                                html += `
-                                    <div class="search-item p-2 hover:bg-slate-700 cursor-pointer flex justify-between items-center text-xs" data-code="${code}" data-name="${name}">
-                                        <span class="text-slate-100 font-medium">${name}</span>
-                                        <span class="text-amber-400 font-mono text-[11px]">${code}</span>
-                                    </div>
-                                `;
-                            });
-                            searchDropdown.innerHTML = html;
-                            searchDropdown.classList.remove('hidden');
-
-                            document.querySelectorAll('.search-item').forEach(el => {
-                                el.addEventListener('click', () => {
-                                    stockNameInput.value = el.dataset.name;
-                                    stockCodeInput.value = el.dataset.code;
-                                    searchDropdown.classList.add('hidden');
-                                    fetchRealtimeStockPrice();
-                                });
-                            });
-                        } else {
-                            searchDropdown.classList.add('hidden');
-                        }
-                    } catch (err) {
-                        console.error('Search error:', err);
-                    }
-                }, 200);
-            });
-
-            stockNameInput.addEventListener('keypress', (e) => {
-                if (e.key === 'Enter') {
-                    searchDropdown.classList.add('hidden');
-                    fetchRealtimeStockPrice();
-                }
-            });
-
-            document.addEventListener('click', (e) => {
-                if (!stockNameInput.contains(e.target) && !searchDropdown.contains(e.target)) {
-                    searchDropdown.classList.add('hidden');
-                }
-            });
-
-            // Vercel 서버를 거치지 않고 브라우저에서 직접 시세 연결 (500 에러 차단)
-            async function fetchRealtimeStockPrice() {
-                let code = stockCodeInput.value.trim();
-                const nameQuery = stockNameInput.value.trim();
-
                 refreshIcon.classList.add('fa-spin');
                 btnFetch.disabled = true;
-                fetchStatus.innerHTML = `<i class="fa-solid fa-spinner fa-spin text-amber-400"></i> 실시간 시세 조회 중...`;
+                fetchStatus.innerHTML = `<i class="fa-solid fa-spinner fa-spin text-amber-400"></i> 실시간 시세 수신 중...`;
 
                 try {
-                    // 종목명만 입력된 경우 종목코드 자동 검색
-                    if (!/^\d{6}$/.test(code) && nameQuery) {
-                        const searchUrl = `https://ac.finance.naver.com/ac?q=${encodeURIComponent(nameQuery)}&q_enc=utf-8&st=111&r_format=json&r_enc=utf-8`;
-                        const searchRes = await fetchJsonp(searchUrl);
-                        const matchedItem = searchRes?.items?.[0]?.[0];
-                        if (matchedItem) {
-                            code = matchedItem[1][0];
-                            stockCodeInput.value = code;
-                            stockNameInput.value = matchedItem[0][0];
-                        }
-                    }
+                    // CORS Proxy를 통한 HTML 데이터 수신
+                    const targetUrl = `https://finance.naver.com/item/main.naver?code=${code}`;
+                    const res = await fetch(`https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(targetUrl)}`);
+                    
+                    if (!res.ok) throw new Error('시세 서버 수신 실패');
 
-                    if (!/^\d{6}$/.test(code)) {
-                        throw new Error('올바른 6자리 종목코드를 입력해주세요.');
-                    }
+                    const htmlText = await res.text();
+                    const parser = new DOMParser();
+                    const doc = parser.parseFromString(htmlText, 'text/html');
 
-                    // 네이버 실시간 Polling API (JSONP 방식)
-                    const pollingUrl = `https://polling.finance.naver.com/api/realtime/domestic/stock/${code}`;
-                    const data = await fetchJsonp(pollingUrl);
+                    // 현재가 DOM 추출
+                    const priceElem = doc.querySelector('.no_today .blind');
+                    const nameElem = doc.querySelector('.wrap_company h2 a');
 
-                    const item = data?.datas?.[0];
-                    if (item && item.closePrice) {
-                        const price = parseInt(item.closePrice.replace(/,/g, ''), 10);
+                    if (priceElem) {
+                        const price = parseInt(priceElem.textContent.replace(/,/g, ''), 10);
                         currentPriceInput.value = price;
-                        if (item.stockName) stockNameInput.value = item.stockName;
+                        if (nameElem) stockNameInput.value = nameElem.textContent.trim();
 
                         const now = new Date();
                         const timeStr = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}:${now.getSeconds().toString().padStart(2, '0')}`;
-                        fetchStatus.innerHTML = `<span class="text-emerald-400 font-semibold"><i class="fa-solid fa-circle-check"></i> ${stockNameInput.value} (${code}) 연결 성공 (${timeStr})</span>`;
+                        fetchStatus.innerHTML = `<span class="text-emerald-400 font-semibold"><i class="fa-solid fa-circle-check"></i> ${stockNameInput.value} (${code}) 연동 성공 (${timeStr})</span>`;
 
                         renderMatrix();
                         setTimeout(scrollToCurrentRow, 150);
                     } else {
-                        throw new Error('시세 데이터를 받아오지 못했습니다.');
+                        throw new Error('시세 데이터를 읽을 수 없습니다.');
                     }
 
                 } catch (err) {
                     console.error('Fetch Error:', err);
-                    fetchStatus.innerHTML = `<span class="text-red-400"><i class="fa-solid fa-triangle-exclamation"></i> 시세 수신 실패: ${err.message}</span>`;
+                    fetchStatus.innerHTML = `<span class="text-red-400"><i class="fa-solid fa-triangle-exclamation"></i> 수신 실패 (${err.message})</span>`;
                 } finally {
                     refreshIcon.classList.remove('fa-spin');
                     btnFetch.disabled = false;
