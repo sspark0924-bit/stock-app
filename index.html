@@ -25,7 +25,7 @@
                 <h1 class="text-xl font-bold text-amber-400 flex items-center gap-2">
                     <i class="fa-solid fa-chart-line"></i> Stock Matrix <span class="text-xs bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded-full border border-emerald-500/30 flex items-center gap-1 inline-flex"><i class="fa-solid fa-cloud text-[10px]"></i> Cloud Live</span>
                 </h1>
-                <p class="text-xs text-slate-400 mt-0.5">실시간 시세 연동 ±0.5% 20단계 계산기</p>
+                <p class="text-xs text-slate-400 mt-0.5">Vercel 서버리스 연동 ±0.5% 20단계 계산기</p>
             </div>
             <button id="btn-reset" class="text-xs text-slate-400 hover:text-white bg-slate-700/50 hover:bg-slate-700 px-3 py-1.5 rounded-lg transition-colors">초기화</button>
         </header>
@@ -34,10 +34,10 @@
             <div>
                 <label class="block text-xs font-semibold text-slate-400 mb-1">원클릭 실시간 조회</label>
                 <div class="flex gap-2 overflow-x-auto pb-1 text-xs">
-                    <button class="preset-btn bg-slate-700 hover:bg-slate-600 px-3 py-1.5 rounded-full text-slate-200 transition whitespace-nowrap" data-code="005930" data-name="삼성전자" data-buy="68000" data-qty="100">삼성전자</button>
-                    <button class="preset-btn bg-slate-700 hover:bg-slate-600 px-3 py-1.5 rounded-full text-slate-200 transition whitespace-nowrap" data-code="000660" data-name="SK하이닉스" data-buy="175000" data-qty="50">SK하이닉스</button>
-                    <button class="preset-btn bg-slate-700 hover:bg-slate-600 px-3 py-1.5 rounded-full text-slate-200 transition whitespace-nowrap" data-code="035420" data-name="NAVER" data-buy="180000" data-qty="30">NAVER</button>
-                    <button class="preset-btn bg-slate-700 hover:bg-slate-600 px-3 py-1.5 rounded-full text-slate-200 transition whitespace-nowrap" data-code="035720" data-name="카카오" data-buy="50000" data-qty="100">카카오</button>
+                    <button class="preset-btn bg-slate-700 hover:bg-slate-600 px-3 py-1.5 rounded-full text-slate-200 transition whitespace-nowrap" data-code="005930" data-name="삼성전자" data-buy="68000" data-qty="100">삼성전자 (005930)</button>
+                    <button class="preset-btn bg-slate-700 hover:bg-slate-600 px-3 py-1.5 rounded-full text-slate-200 transition whitespace-nowrap" data-code="000660" data-name="SK하이닉스" data-buy="175000" data-qty="50">SK하이닉스 (000660)</button>
+                    <button class="preset-btn bg-slate-700 hover:bg-slate-600 px-3 py-1.5 rounded-full text-slate-200 transition whitespace-nowrap" data-code="035420" data-name="NAVER" data-buy="180000" data-qty="30">NAVER (035420)</button>
+                    <button class="preset-btn bg-slate-700 hover:bg-slate-600 px-3 py-1.5 rounded-full text-slate-200 transition whitespace-nowrap" data-code="035720" data-name="카카오" data-buy="50000" data-qty="100">카카오 (035720)</button>
                 </div>
             </div>
 
@@ -47,8 +47,8 @@
                     <input type="text" id="stock-code" value="005930" maxlength="6" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-amber-400 font-mono text-center focus:outline-none focus:border-amber-500">
                 </div>
                 <div class="col-span-5 sm:col-span-6 relative">
-                    <label for="stock-name" class="block text-[10px] text-slate-400 mb-0.5">종목명 검색 (예: 카카오)</label>
-                    <input type="text" id="stock-name" value="삼성전자" placeholder="종목명 또는 코드" autocomplete="off" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-amber-500">
+                    <label for="stock-name" class="block text-[10px] text-slate-400 mb-0.5">종목명 검색</label>
+                    <input type="text" id="stock-name" value="삼성전자" placeholder="종목명 입력 (예: 카카오)" autocomplete="off" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-amber-500">
                     <div id="search-dropdown" class="hidden absolute left-0 right-0 top-full mt-1 bg-slate-800 border border-slate-700 rounded-lg shadow-xl z-50 max-h-48 overflow-y-auto divide-y divide-slate-700/50"></div>
                 </div>
                 <div class="col-span-3 sm:col-span-3 flex items-end h-full pt-4">
@@ -134,7 +134,7 @@
                 return new Intl.NumberFormat('ko-KR').format(num);
             }
 
-            // 종목명 실시간 자동완성
+            // 종목명 입력 시 자동완성 드롭다운
             stockNameInput.addEventListener('input', (e) => {
                 const keyword = e.target.value.trim();
                 clearTimeout(searchTimeout);
@@ -182,6 +182,7 @@
                 }, 200);
             });
 
+            // Enter 키 누르면 조회 실행
             stockNameInput.addEventListener('keypress', (e) => {
                 if (e.key === 'Enter') {
                     searchDropdown.classList.add('hidden');
@@ -195,9 +196,10 @@
                 }
             });
 
-            // Vercel 백엔드 API 수신
+            // 실시간 조회 함수 (종목명/종목코드 유연한 처리)
             async function fetchRealtimeStockPrice() {
                 const queryVal = stockNameInput.value.trim() || stockCodeInput.value.trim();
+                
                 if (!queryVal) {
                     alert('종목명 또는 종목코드를 입력해주세요.');
                     return;
@@ -205,31 +207,36 @@
 
                 refreshIcon.classList.add('fa-spin');
                 btnFetch.disabled = true;
-                fetchStatus.innerHTML = `<i class="fa-solid fa-spinner fa-spin text-amber-400"></i> 실시간 시세 요청 중...`;
+                fetchStatus.innerHTML = `<i class="fa-solid fa-spinner fa-spin text-amber-400"></i> 서버리스 API 수신 중...`;
 
                 try {
                     const response = await fetch(`/api/stock?code=${encodeURIComponent(queryVal)}`);
-                    if (!response.ok) throw new Error(`HTTP 오류 (${response.status})`);
+                    
+                    if (!response.ok) {
+                        throw new Error(`HTTP 오류 (${response.status})`);
+                    }
 
                     const res = await response.json();
                     
                     if (res && res.success && res.price) {
                         currentPriceInput.value = res.price;
                         stockCodeInput.value = res.code;
-                        if (res.name) stockNameInput.value = res.name;
+                        if (res.name && res.name !== '종목명') {
+                            stockNameInput.value = res.name;
+                        }
 
                         const now = new Date();
                         const timeStr = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}:${now.getSeconds().toString().padStart(2, '0')}`;
-                        fetchStatus.innerHTML = `<span class="text-emerald-400 font-semibold"><i class="fa-solid fa-circle-check"></i> ${stockNameInput.value} (${res.code}) 실시간 연동 완료 (${timeStr})</span>`;
+                        fetchStatus.innerHTML = `<span class="text-emerald-400 font-semibold"><i class="fa-solid fa-circle-check"></i> ${stockNameInput.value} (${res.code}) 연결 완료 (${timeStr})</span>`;
 
                         renderMatrix();
                         setTimeout(scrollToCurrentRow, 150);
                     } else {
-                        throw new Error(res.error || '시세 응답 오류');
+                        throw new Error(res.error || '시세 응답 형식 오류');
                     }
                 } catch (err) {
                     console.error('Fetch Error:', err);
-                    fetchStatus.innerHTML = `<span class="text-red-400"><i class="fa-solid fa-triangle-exclamation"></i> ${err.message}</span>`;
+                    fetchStatus.innerHTML = `<span class="text-red-400"><i class="fa-solid fa-triangle-exclamation"></i> 시세 수신 실패: ${err.message}</span>`;
                 } finally {
                     refreshIcon.classList.remove('fa-spin');
                     btnFetch.disabled = false;
