@@ -31,17 +31,16 @@
         </header>
 
         <section class="p-4 bg-slate-800/40 border-b border-slate-800 space-y-3">
-            <!-- Preset Stock Buttons -->
             <div>
                 <label class="block text-xs font-semibold text-slate-400 mb-1">원클릭 실시간 조회</label>
                 <div class="flex gap-2 overflow-x-auto pb-1 text-xs">
                     <button class="preset-btn bg-slate-700 hover:bg-slate-600 px-3 py-1.5 rounded-full text-slate-200 transition whitespace-nowrap" data-code="005930" data-name="삼성전자" data-buy="68000" data-qty="100">삼성전자 (005930)</button>
                     <button class="preset-btn bg-slate-700 hover:bg-slate-600 px-3 py-1.5 rounded-full text-slate-200 transition whitespace-nowrap" data-code="000660" data-name="SK하이닉스" data-buy="175000" data-qty="50">SK하이닉스 (000660)</button>
                     <button class="preset-btn bg-slate-700 hover:bg-slate-600 px-3 py-1.5 rounded-full text-slate-200 transition whitespace-nowrap" data-code="035420" data-name="NAVER" data-buy="180000" data-qty="30">NAVER (035420)</button>
+                    <button class="preset-btn bg-slate-700 hover:bg-slate-600 px-3 py-1.5 rounded-full text-slate-200 transition whitespace-nowrap" data-code="035720" data-name="카카오" data-buy="50000" data-qty="100">카카오 (035720)</button>
                 </div>
             </div>
 
-            <!-- Search Controls -->
             <div class="grid grid-cols-12 gap-2 bg-slate-950/80 p-2.5 rounded-xl border border-slate-800 items-center relative">
                 <div class="col-span-4 sm:col-span-3">
                     <label for="stock-code" class="block text-[10px] text-slate-400 mb-0.5">종목코드 (6자리)</label>
@@ -50,7 +49,6 @@
                 <div class="col-span-5 sm:col-span-6 relative">
                     <label for="stock-name" class="block text-[10px] text-slate-400 mb-0.5">종목명 검색</label>
                     <input type="text" id="stock-name" value="삼성전자" placeholder="종목명 입력 (예: 카카오)" autocomplete="off" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-amber-500">
-                    <!-- Search Results Dropdown -->
                     <div id="search-dropdown" class="hidden absolute left-0 right-0 top-full mt-1 bg-slate-800 border border-slate-700 rounded-lg shadow-xl z-50 max-h-48 overflow-y-auto divide-y divide-slate-700/50"></div>
                 </div>
                 <div class="col-span-3 sm:col-span-3 flex items-end h-full pt-4">
@@ -136,7 +134,7 @@
                 return new Intl.NumberFormat('ko-KR').format(num);
             }
 
-            // 종목명 실시간 자동완성 검색
+            // 종목명 실시간 자동완성
             stockNameInput.addEventListener('input', (e) => {
                 const keyword = e.target.value.trim();
                 clearTimeout(searchTimeout);
@@ -184,47 +182,50 @@
                 }, 200);
             });
 
-            // 드롭다운 외부 클릭 시 닫기
+            stockNameInput.addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') {
+                    searchDropdown.classList.add('hidden');
+                    fetchRealtimeStockPrice();
+                }
+            });
+
             document.addEventListener('click', (e) => {
                 if (!stockNameInput.contains(e.target) && !searchDropdown.contains(e.target)) {
                     searchDropdown.classList.add('hidden');
                 }
             });
 
+            // 실시간 조회 (종목명/종목코드 유연 처리)
             async function fetchRealtimeStockPrice() {
-                const rawCode = stockCodeInput.value.trim();
-                if (!rawCode || rawCode.length !== 6) {
-                    alert('올바른 6자리 종목코드를 입력해주세요.');
+                const queryVal = stockNameInput.value.trim() || stockCodeInput.value.trim();
+                
+                if (!queryVal) {
+                    alert('종목명 또는 종목코드를 입력해주세요.');
                     return;
                 }
 
                 refreshIcon.classList.add('fa-spin');
                 btnFetch.disabled = true;
-                fetchStatus.innerHTML = `<i class="fa-solid fa-spinner fa-spin text-amber-400"></i> 서버리스 API 수신 중...`;
+                fetchStatus.innerHTML = `<i class="fa-solid fa-spinner fa-spin text-amber-400"></i> 서버 API 수신 중...`;
 
                 try {
-                    const response = await fetch(`/api/stock?code=${rawCode}`);
-                    
-                    if (!response.ok) {
-                        throw new Error(`HTTP 오류 (${response.status})`);
-                    }
+                    const response = await fetch(`/api/stock?code=${encodeURIComponent(queryVal)}`);
+                    if (!response.ok) throw new Error(`HTTP 에러 (${response.status})`);
 
                     const res = await response.json();
-                    
                     if (res && res.success && res.price) {
                         currentPriceInput.value = res.price;
-                        if (res.name && res.name !== '종목') {
-                            stockNameInput.value = res.name;
-                        }
+                        stockCodeInput.value = res.code;
+                        if (res.name) stockNameInput.value = res.name;
 
                         const now = new Date();
                         const timeStr = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}:${now.getSeconds().toString().padStart(2, '0')}`;
-                        fetchStatus.innerHTML = `<span class="text-emerald-400 font-semibold"><i class="fa-solid fa-circle-check"></i> ${stockNameInput.value} 실시간 연결 완료 (${timeStr})</span>`;
+                        fetchStatus.innerHTML = `<span class="text-emerald-400 font-semibold"><i class="fa-solid fa-circle-check"></i> ${stockNameInput.value} (${res.code}) 연결 완료 (${timeStr})</span>`;
 
                         renderMatrix();
                         setTimeout(scrollToCurrentRow, 150);
                     } else {
-                        throw new Error(res.error || '시세 응답 형식 오류');
+                        throw new Error(res.error || '시세 응답 오류');
                     }
                 } catch (err) {
                     console.error('Fetch Error:', err);
