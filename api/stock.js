@@ -13,18 +13,20 @@ export default async function handler(req, res) {
 
   code = decodeURIComponent(code).trim();
 
-  // 1. 종목명 입력 시 네이버 검색 API로 6자리 코드 변환
+  // 1. 입력값이 6자리 숫자가 아닌 경우 (종목명 입력 시) 네이버 검색 API로 6자리 코드 자동 변환
   if (!/^\d{6}$/.test(code)) {
     try {
       const searchUrl = `https://ac.finance.naver.com/ac?q=${encodeURIComponent(code)}&q_enc=utf-8&st=111&r_format=json&r_enc=utf-8`;
       const searchRes = await fetch(searchUrl, {
-        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' }
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        }
       });
       const searchData = await searchRes.json();
       const matchedItem = searchData?.items?.[0]?.[0];
 
       if (matchedItem) {
-        code = matchedItem[1][0];
+        code = matchedItem[1][0]; // 예: 카카오 -> 035720
       } else {
         return res.status(400).json({ success: false, error: `'${req.query.code}' 종목을 찾을 수 없습니다.` });
       }
@@ -33,7 +35,7 @@ export default async function handler(req, res) {
     }
   }
 
-  // 2. 야후 파이낸스 API 시도 (.KS / .KQ)
+  // 2. 야후 파이낸스 차트 API 1차 시도
   const symbols = [`${code}.KS`, `${code}.KQ`];
   for (const symbol of symbols) {
     try {
@@ -51,7 +53,7 @@ export default async function handler(req, res) {
           return res.status(200).json({
             success: true,
             code,
-            name: result.meta.shortName || '종목명',
+            name: result.meta.shortName || result.meta.symbol,
             price: Math.round(result.meta.regularMarketPrice)
           });
         }
@@ -59,12 +61,12 @@ export default async function handler(req, res) {
     } catch (e) {}
   }
 
-  // 3. 네이버 증권 Polling API 시도
+  // 3. 네이버 실시간 Polling API 2차 시도
   try {
     const naverUrl = `https://polling.finance.naver.com/api/realtime/domestic/stock/${code}`;
     const response = await fetch(naverUrl, {
       headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+        'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)',
         'Referer': 'https://finance.naver.com/'
       }
     });
@@ -85,6 +87,6 @@ export default async function handler(req, res) {
 
   return res.status(500).json({
     success: false,
-    error: '실시간 시세를 불러오지 못했습니다.'
+    error: '실시간 시세를 불러올 수 없습니다. 다시 시도해 주세요.'
   });
 }
