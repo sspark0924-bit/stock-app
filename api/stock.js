@@ -6,12 +6,32 @@ export default async function handler(req, res) {
     return res.status(200).end();
   }
 
-  const { code } = req.query;
-  if (!code || code.length !== 6) {
-    return res.status(400).json({ success: false, error: '올바른 6자리 종목코드가 필요합니다.' });
+  let { code } = req.query;
+  if (!code) {
+    return res.status(400).json({ success: false, error: '종목코드 또는 종목명이 필요합니다.' });
   }
 
-  // 1차 시도: 야후 파이낸스 API (코스피 .KS / 코스닥 .KQ 순차 시도)
+  code = code.trim();
+
+  // 입력값이 6자리 숫자가 아니면 (종목명인 경우) 네이버 검색 API로 6자리 코드 찾기
+  if (!/^\d{6}$/.test(code)) {
+    try {
+      const searchUrl = `https://ac.finance.naver.com/ac?q=${encodeURIComponent(code)}&q_enc=utf-8&st=111&r_format=json&r_enc=utf-8`;
+      const searchRes = await fetch(searchUrl);
+      const searchData = await searchRes.json();
+      const matchedItem = searchData?.items?.[0]?.[0];
+
+      if (matchedItem) {
+        code = matchedItem[1][0]; // 6자리 종목코드로 교체 (예: 카카오 -> 035720)
+      } else {
+        return res.status(400).json({ success: false, error: `'${req.query.code}' 종목을 찾을 수 없습니다.` });
+      }
+    } catch (e) {
+      return res.status(500).json({ success: false, error: '종목 검색 중 오류가 발생했습니다.' });
+    }
+  }
+
+  // 야후 파이낸스 API 호출 (코스피 .KS / 코스닥 .KQ)
   const symbols = [`${code}.KS`, `${code}.KQ`];
 
   for (const symbol of symbols) {
@@ -42,7 +62,7 @@ export default async function handler(req, res) {
     }
   }
 
-  // 2차 시도: 네이버 증권 대체 엔드포인트
+  // 네이버 증권 대체 엔드포인트 시도
   try {
     const naverUrl = `https://polling.finance.naver.com/api/realtime/domestic/stock/${code}`;
     const response = await fetch(naverUrl, {
@@ -70,9 +90,8 @@ export default async function handler(req, res) {
     console.log('Naver fallback failed:', e.message);
   }
 
-  // 모든 호출 실패 시 예외 처리
   return res.status(500).json({
     success: false,
-    error: '실시간 시세를 불러올 수 없습니다. 종목코드를 확인해 주세요.'
+    error: '실시간 시세를 불러올 수 없습니다.'
   });
 }
