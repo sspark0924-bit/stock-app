@@ -23,7 +23,7 @@
         <header class="bg-slate-800/80 backdrop-blur border-b border-slate-700/60 p-4 sticky top-0 z-20 flex justify-between items-center">
             <div>
                 <h1 class="text-xl font-bold text-amber-400 flex items-center gap-2">
-                    <i class="fa-solid fa-chart-line"></i> Stock Matrix <span class="text-xs bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded-full border border-emerald-500/30 flex items-center gap-1 inline-flex"><i class="fa-solid fa-bolt text-[10px]"></i> Direct API</span>
+                    <i class="fa-solid fa-chart-line"></i> Stock Matrix <span class="text-xs bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded-full border border-emerald-500/30 flex items-center gap-1 inline-flex"><i class="fa-solid fa-cloud text-[10px]"></i> Cloud Live</span>
                 </h1>
                 <p class="text-xs text-slate-400 mt-0.5">실시간 시세 연동 ±0.5% 20단계 계산기</p>
             </div>
@@ -134,39 +134,7 @@
                 return new Intl.NumberFormat('ko-KR').format(num);
             }
 
-            // 브라우저 직접 JSONP 시세 수신 (500 에러 및 CORS 원천 차단)
-            function fetchStockDirect(code) {
-                return new Promise((resolve, reject) => {
-                    const cbName = 'naver_cb_' + Date.now();
-                    const script = document.createElement('script');
-
-                    window[cbName] = function(data) {
-                        delete window[cbName];
-                        if (document.body.contains(script)) document.body.removeChild(script);
-                        
-                        const item = data?.datas?.[0];
-                        if (item && item.closePrice) {
-                            resolve({
-                                price: parseInt(item.closePrice.replace(/,/g, ''), 10),
-                                name: item.stockName
-                            });
-                        } else {
-                            reject(new Error('시세 파싱 오류'));
-                        }
-                    };
-
-                    script.onerror = function() {
-                        delete window[cbName];
-                        if (document.body.contains(script)) document.body.removeChild(script);
-                        reject(new Error('네트워크 연동 실패'));
-                    };
-
-                    script.src = `https://polling.finance.naver.com/api/realtime/domestic/stock/${code}?callback=${cbName}`;
-                    document.body.appendChild(script);
-                });
-            }
-
-            // 종목명 실시간 자동완성 검색 (JSONP 방식)
+            // 종목명 입력 시 자동완성 드롭다운 (네이버)
             stockNameInput.addEventListener('input', (e) => {
                 const keyword = e.target.value.trim();
                 clearTimeout(searchTimeout);
@@ -176,15 +144,12 @@
                     return;
                 }
 
-                searchTimeout = setTimeout(() => {
-                    const cbName = 'search_cb_' + Date.now();
-                    const script = document.createElement('script');
-
-                    window[cbName] = function(data) {
-                        delete window[cbName];
-                        if (document.body.contains(script)) document.body.removeChild(script);
-
+                searchTimeout = setTimeout(async () => {
+                    try {
+                        const res = await fetch(`https://ac.finance.naver.com/ac?q=${encodeURIComponent(keyword)}&q_enc=utf-8&st=111&r_format=json&r_enc=utf-8`);
+                        const data = await res.json();
                         const items = data?.items?.[0] || [];
+
                         if (items.length > 0) {
                             let html = '';
                             items.slice(0, 6).forEach(item => {
@@ -211,15 +176,9 @@
                         } else {
                             searchDropdown.classList.add('hidden');
                         }
-                    };
-
-                    script.onerror = function() {
-                        delete window[cbName];
-                        if (document.body.contains(script)) document.body.removeChild(script);
-                    };
-
-                    script.src = `https://ac.finance.naver.com/ac?q=${encodeURIComponent(keyword)}&q_enc=utf-8&st=111&r_format=json&r_enc=utf-8&callback=${cbName}`;
-                    document.body.appendChild(script);
+                    } catch (err) {
+                        console.error('Search error:', err);
+                    }
                 }, 200);
             });
 
@@ -236,29 +195,37 @@
                 }
             });
 
+            // Vercel 서버리스 API 호출
             async function fetchRealtimeStockPrice() {
-                const code = stockCodeInput.value.trim();
-                if (!code || code.length !== 6) {
-                    alert('올바른 6자리 종목코드를 입력해주세요.');
+                const queryVal = stockNameInput.value.trim() || stockCodeInput.value.trim();
+                if (!queryVal) {
+                    alert('종목명 또는 종목코드를 입력해주세요.');
                     return;
                 }
 
                 refreshIcon.classList.add('fa-spin');
                 btnFetch.disabled = true;
-                fetchStatus.innerHTML = `<i class="fa-solid fa-spinner fa-spin text-amber-400"></i> 실시간 시세 조회 중...`;
+                fetchStatus.innerHTML = `<i class="fa-solid fa-spinner fa-spin text-amber-400"></i> 서버 API 수신 중...`;
 
                 try {
-                    const res = await fetchStockDirect(code);
-                    currentPriceInput.value = res.price;
-                    if (res.name) stockNameInput.value = res.name;
+                    const response = await fetch(`/api/stock?code=${encodeURIComponent(queryVal)}`);
+                    if (!response.ok) throw new Error(`HTTP 에러 (${response.status})`);
 
-                    const now = new Date();
-                    const timeStr = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}:${now.getSeconds().toString().padStart(2, '0')}`;
-                    fetchStatus.innerHTML = `<span class="text-emerald-400 font-semibold"><i class="fa-solid fa-circle-check"></i> ${stockNameInput.value} (${code}) 연동 성공 (${timeStr})</span>`;
+                    const res = await response.json();
+                    if (res && res.success && res.price) {
+                        currentPriceInput.value = res.price;
+                        stockCodeInput.value = res.code;
+                        if (res.name) stockNameInput.value = res.name;
 
-                    renderMatrix();
-                    setTimeout(scrollToCurrentRow, 150);
+                        const now = new Date();
+                        const timeStr = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}:${now.getSeconds().toString().padStart(2, '0')}`;
+                        fetchStatus.innerHTML = `<span class="text-emerald-400 font-semibold"><i class="fa-solid fa-circle-check"></i> ${stockNameInput.value} (${res.code}) 연결 완료 (${timeStr})</span>`;
 
+                        renderMatrix();
+                        setTimeout(scrollToCurrentRow, 150);
+                    } else {
+                        throw new Error(res.error || '시세 응답 오류');
+                    }
                 } catch (err) {
                     console.error('Fetch Error:', err);
                     fetchStatus.innerHTML = `<span class="text-red-400"><i class="fa-solid fa-triangle-exclamation"></i> 시세 수신 실패: ${err.message}</span>`;
