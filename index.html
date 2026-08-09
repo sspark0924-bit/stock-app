@@ -134,7 +134,7 @@
                 return new Intl.NumberFormat('ko-KR').format(num);
             }
 
-            // 종목명 입력 시 자동완성 드롭다운 (네이버)
+            // 종목명 실시간 자동완성 검색
             stockNameInput.addEventListener('input', (e) => {
                 const keyword = e.target.value.trim();
                 clearTimeout(searchTimeout);
@@ -195,7 +195,6 @@
                 }
             });
 
-            // Vercel 서버리스 API 호출
             async function fetchRealtimeStockPrice() {
                 const queryVal = stockNameInput.value.trim() || stockCodeInput.value.trim();
                 if (!queryVal) {
