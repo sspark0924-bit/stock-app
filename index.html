@@ -23,9 +23,9 @@
         <header class="bg-slate-800/80 backdrop-blur border-b border-slate-700/60 p-4 sticky top-0 z-20 flex justify-between items-center">
             <div>
                 <h1 class="text-xl font-bold text-amber-400 flex items-center gap-2">
-                    <i class="fa-solid fa-chart-line"></i> Stock Matrix <span class="text-xs bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded-full border border-emerald-500/30 flex items-center gap-1 inline-flex"><i class="fa-solid fa-cloud text-[10px]"></i> Cloud Live</span>
+                    <i class="fa-solid fa-chart-line"></i> Stock Matrix <span class="text-xs bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded-full border border-emerald-500/30 flex items-center gap-1 inline-flex"><i class="fa-solid fa-bolt text-[10px]"></i> Direct API</span>
                 </h1>
-                <p class="text-xs text-slate-400 mt-0.5">Vercel 서버리스 연동 ±0.5% 20단계 계산기</p>
+                <p class="text-xs text-slate-400 mt-0.5">실시간 시세 연동 ±0.5% 20단계 계산기</p>
             </div>
             <button id="btn-reset" class="text-xs text-slate-400 hover:text-white bg-slate-700/50 hover:bg-slate-700 px-3 py-1.5 rounded-lg transition-colors">초기화</button>
         </header>
@@ -134,7 +134,31 @@
                 return new Intl.NumberFormat('ko-KR').format(num);
             }
 
-            // 종목명 입력 시 자동완성 드롭다운
+            // CORS 우회용 JSONP 헬퍼 함수
+            function fetchJsonp(url) {
+                return new Promise((resolve, reject) => {
+                    const callbackName = 'jsonp_cb_' + Math.random().toString(36).substring(2, 10);
+                    const script = document.createElement('script');
+
+                    window[callbackName] = (data) => {
+                        delete window[callbackName];
+                        if (document.body.contains(script)) document.body.removeChild(script);
+                        resolve(data);
+                    };
+
+                    script.onerror = () => {
+                        delete window[callbackName];
+                        if (document.body.contains(script)) document.body.removeChild(script);
+                        reject(new Error('네트워크 연동 실패'));
+                    };
+
+                    const delimiter = url.includes('?') ? '&' : '?';
+                    script.src = `${url}${delimiter}callback=${callbackName}`;
+                    document.body.appendChild(script);
+                });
+            }
+
+            // 종목명 실시간 자동완성 검색
             stockNameInput.addEventListener('input', (e) => {
                 const keyword = e.target.value.trim();
                 clearTimeout(searchTimeout);
@@ -146,9 +170,9 @@
 
                 searchTimeout = setTimeout(async () => {
                     try {
-                        const res = await fetch(`https://ac.finance.naver.com/ac?q=${encodeURIComponent(keyword)}&q_enc=utf-8&st=111&r_format=json&r_enc=utf-8`);
-                        const data = await res.json();
-                        const items = data?.items?.[0] || [];
+                        const searchUrl = `https://ac.finance.naver.com/ac?q=${encodeURIComponent(keyword)}&q_enc=utf-8&st=111&r_format=json&r_enc=utf-8`;
+                        const res = await fetchJsonp(searchUrl);
+                        const items = res?.items?.[0] || [];
 
                         if (items.length > 0) {
                             let html = '';
@@ -182,7 +206,6 @@
                 }, 200);
             });
 
-            // Enter 키 누르면 조회 실행
             stockNameInput.addEventListener('keypress', (e) => {
                 if (e.key === 'Enter') {
                     searchDropdown.classList.add('hidden');
@@ -196,44 +219,52 @@
                 }
             });
 
-            // 실시간 조회 함수 (종목명/종목코드 유연한 처리)
+            // Vercel 서버를 거치지 않고 브라우저에서 직접 시세 연결 (500 에러 차단)
             async function fetchRealtimeStockPrice() {
-                const queryVal = stockNameInput.value.trim() || stockCodeInput.value.trim();
-                
-                if (!queryVal) {
-                    alert('종목명 또는 종목코드를 입력해주세요.');
-                    return;
-                }
+                let code = stockCodeInput.value.trim();
+                const nameQuery = stockNameInput.value.trim();
 
                 refreshIcon.classList.add('fa-spin');
                 btnFetch.disabled = true;
-                fetchStatus.innerHTML = `<i class="fa-solid fa-spinner fa-spin text-amber-400"></i> 서버리스 API 수신 중...`;
+                fetchStatus.innerHTML = `<i class="fa-solid fa-spinner fa-spin text-amber-400"></i> 실시간 시세 조회 중...`;
 
                 try {
-                    const response = await fetch(`/api/stock?code=${encodeURIComponent(queryVal)}`);
-                    
-                    if (!response.ok) {
-                        throw new Error(`HTTP 오류 (${response.status})`);
+                    // 종목명만 입력된 경우 종목코드 자동 검색
+                    if (!/^\d{6}$/.test(code) && nameQuery) {
+                        const searchUrl = `https://ac.finance.naver.com/ac?q=${encodeURIComponent(nameQuery)}&q_enc=utf-8&st=111&r_format=json&r_enc=utf-8`;
+                        const searchRes = await fetchJsonp(searchUrl);
+                        const matchedItem = searchRes?.items?.[0]?.[0];
+                        if (matchedItem) {
+                            code = matchedItem[1][0];
+                            stockCodeInput.value = code;
+                            stockNameInput.value = matchedItem[0][0];
+                        }
                     }
 
-                    const res = await response.json();
-                    
-                    if (res && res.success && res.price) {
-                        currentPriceInput.value = res.price;
-                        stockCodeInput.value = res.code;
-                        if (res.name && res.name !== '종목명') {
-                            stockNameInput.value = res.name;
-                        }
+                    if (!/^\d{6}$/.test(code)) {
+                        throw new Error('올바른 6자리 종목코드를 입력해주세요.');
+                    }
+
+                    // 네이버 실시간 Polling API (JSONP 방식)
+                    const pollingUrl = `https://polling.finance.naver.com/api/realtime/domestic/stock/${code}`;
+                    const data = await fetchJsonp(pollingUrl);
+
+                    const item = data?.datas?.[0];
+                    if (item && item.closePrice) {
+                        const price = parseInt(item.closePrice.replace(/,/g, ''), 10);
+                        currentPriceInput.value = price;
+                        if (item.stockName) stockNameInput.value = item.stockName;
 
                         const now = new Date();
                         const timeStr = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}:${now.getSeconds().toString().padStart(2, '0')}`;
-                        fetchStatus.innerHTML = `<span class="text-emerald-400 font-semibold"><i class="fa-solid fa-circle-check"></i> ${stockNameInput.value} (${res.code}) 연결 완료 (${timeStr})</span>`;
+                        fetchStatus.innerHTML = `<span class="text-emerald-400 font-semibold"><i class="fa-solid fa-circle-check"></i> ${stockNameInput.value} (${code}) 연결 성공 (${timeStr})</span>`;
 
                         renderMatrix();
                         setTimeout(scrollToCurrentRow, 150);
                     } else {
-                        throw new Error(res.error || '시세 응답 형식 오류');
+                        throw new Error('시세 데이터를 받아오지 못했습니다.');
                     }
+
                 } catch (err) {
                     console.error('Fetch Error:', err);
                     fetchStatus.innerHTML = `<span class="text-red-400"><i class="fa-solid fa-triangle-exclamation"></i> 시세 수신 실패: ${err.message}</span>`;
