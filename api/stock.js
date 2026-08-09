@@ -7,14 +7,18 @@ export default async function handler(req, res) {
   }
 
   let { code } = req.query;
+
   if (!code) {
-    return res.status(400).json({ success: false, error: '종목코드가 필요합니다.' });
+    return res.status(400).json({
+      success: false,
+      error: '종목코드 또는 종목명이 필요합니다.'
+    });
   }
 
   code = decodeURIComponent(code).trim();
 
-  // 종목명 -> 코드 변환
-  if (!/^\d{6}$/.test(code)) {
+  // 종목명 → 코드 변환
+  if (!/^\\d{6}$/.test(code)) {
     try {
       const searchUrl =
         `https://ac.finance.naver.com/ac?q=${encodeURIComponent(code)}&q_enc=utf-8&st=111&r_format=json&r_enc=utf-8`;
@@ -24,85 +28,31 @@ export default async function handler(req, res) {
       });
 
       const j = await r.json();
+
       const item = j?.items?.[0]?.[0];
 
       if (!item) {
-        return res.status(404).json({ success: false, error: '종목을 찾을 수 없습니다.' });
+        return res.status(404).json({
+          success: false,
+          error: '종목을 찾을 수 없습니다.'
+        });
       }
 
       code = item[1][0];
     } catch (e) {
       console.error('검색 오류', e);
-      return res.status(500).json({ success: false, error: '종목 검색 실패' });
-    }
-  }
 
-  // -----------------------------
-  // 1차 : 네이버 모바일 API
-  // -----------------------------
-  try {
-    const url = `https://m.stock.naver.com/api/stock/${code}/basic`;
-
-    const r = await fetch(url, {
-      headers: {
-        'User-Agent':
-          'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148',
-        Referer: `https://m.stock.naver.com/item/main.naver?symbol=${code}`
-      }
-    });
-
-    if (r.ok) {
-      const j = await r.json();
-
-      const price = parseInt(String(j.nowValue).replace(/,/g, ''), 10);
-
-      if (!isNaN(price)) {
-        return res.status(200).json({
-          success: true,
-          code,
-          name: j.stockName,
-          price
-        });
-      }
-    }
-
-    console.error('네이버 API 상태:', r.status);
-  } catch (e) {
-    console.error('네이버 API 오류', e);
-  }
-
-  // -----------------------------
-  // 2차 : 네이버 HTML 파싱
-  // -----------------------------
-  try {
-    const url = `https://finance.naver.com/item/main.naver?code=${code}`;
-
-    const r = await fetch(url, {
-      headers: { 'User-Agent': 'Mozilla/5.0' }
-    });
-
-    const html = await r.text();
-
-    const match = html.match(/<p class="no_today">[\s\S]*?<span class="blind">([\d,]+)<\/span>/);
-
-    if (match) {
-      const price = parseInt(match[1].replace(/,/g, ''), 10);
-
-      return res.status(200).json({
-        success: true,
-        code,
-        name: code,
-        price
+      return res.status(500).json({
+        success: false,
+        error: '종목 검색 실패'
       });
     }
-  } catch (e) {
-    console.error('HTML 파싱 오류', e);
   }
 
-  // -----------------------------
-  // 3차 : Yahoo Finance
-  // -----------------------------
-  for (const symbol of [`${code}.KS`, `${code}.KQ`]) {
+  // Yahoo Finance 우선
+  const symbols = [`${code}.KS`, `${code}.KQ`];
+
+  for (const symbol of symbols) {
     try {
       const url =
         `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1m&range=1d`;
@@ -114,6 +64,7 @@ export default async function handler(req, res) {
       if (!r.ok) continue;
 
       const j = await r.json();
+
       const meta = j?.chart?.result?.[0]?.meta;
 
       if (meta?.regularMarketPrice) {
@@ -127,6 +78,34 @@ export default async function handler(req, res) {
     } catch (e) {
       console.error('Yahoo 오류', e);
     }
+  }
+
+  // 네이버 HTML 백업
+  try {
+    const url = `https://finance.naver.com/item/main.naver?code=${code}`;
+
+    const r = await fetch(url, {
+      headers: { 'User-Agent': 'Mozilla/5.0' }
+    });
+
+    const html = await r.text();
+
+    const priceMatch = html.match(
+      /<p class="no_today">[\\s\\S]*?<span class="blind">([\\d,]+)<\\/span>/
+    );
+
+    const nameMatch = html.match(/<title>(.*?) : 네이버페이 증권<\\/title>/);
+
+    if (priceMatch) {
+      return res.status(200).json({
+        success: true,
+        code,
+        name: nameMatch ? nameMatch[1] : code,
+        price: parseInt(priceMatch[1].replace(/,/g, ''), 10)
+      });
+    }
+  } catch (e) {
+    console.error('네이버 HTML 오류', e);
   }
 
   return res.status(500).json({
