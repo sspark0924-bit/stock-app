@@ -25,7 +25,7 @@
                 <h1 class="text-xl font-bold text-amber-400 flex items-center gap-2">
                     <i class="fa-solid fa-chart-line"></i> Stock Matrix <span class="text-xs bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded-full border border-emerald-500/30 flex items-center gap-1 inline-flex"><i class="fa-solid fa-cloud text-[10px]"></i> Cloud Live</span>
                 </h1>
-                <p class="text-xs text-slate-400 mt-0.5">실시간 시세 연동 ±0.5% 20단계 계산기</p>
+                <p class="text-xs text-slate-400 mt-0.5">매수 평단가 기준 ±0.5% 20단계 계산기</p>
             </div>
             <button id="btn-reset" class="text-xs text-slate-400 hover:text-white bg-slate-700/50 hover:bg-slate-700 px-3 py-1.5 rounded-lg transition-colors">초기화</button>
         </header>
@@ -78,7 +78,7 @@
                     <i class="fa-regular fa-clock"></i> 시세 수신 대기 중
                 </span>
                 <button id="btn-jump" class="bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 font-medium py-1 px-3 rounded-lg text-xs transition flex items-center gap-1">
-                    <i class="fa-solid fa-crosshairs"></i> 현재가(0.0%) 위치로 이동
+                    <i class="fa-solid fa-crosshairs"></i> 매수가(0.0%) 위치로 이동
                 </button>
             </div>
 
@@ -95,7 +95,7 @@
                     <tr>
                         <th class="py-2.5 px-3 w-1/5 text-center">단계</th>
                         <th class="py-2.5 px-3 w-1/4 text-right">목표 가격</th>
-                        <th class="py-2.5 px-3 w-1/6 text-right">변동률</th>
+                        <th class="py-2.5 px-3 w-1/6 text-right">현재가 대비</th>
                         <th class="py-2.5 px-3 w-1/6 text-right">수익률</th>
                         <th class="py-2.5 px-3 w-1/4 text-right">예상 손익</th>
                     </tr>
@@ -251,15 +251,37 @@ document.addEventListener('DOMContentLoaded', () => {
         const steps = 20;
         const stepPercent = 0.005;
 
+        // 매수 평단가가 없으면(0원) 계산 기준을 잡을 수 없으므로 현재가로 대체
+        const basePrice = purchasePrice > 0 ? purchasePrice : currentPrice;
+
+        // 현재가와 가장 가까운 단계를 찾아 별도 표시하기 위한 사전 계산
+        let closestStepIndex = null;
+        let closestDiff = Infinity;
+
+        if (currentPrice > 0 && basePrice > 0) {
+            for (let i = steps; i >= -steps; i--) {
+                const tp = Math.round(basePrice * (1 + i * stepPercent));
+                const diff = Math.abs(tp - currentPrice);
+                if (diff < closestDiff) {
+                    closestDiff = diff;
+                    closestStepIndex = i;
+                }
+            }
+        }
+
         let html = '';
 
         for (let i = steps; i >= -steps; i--) {
 
-            const rate = i * stepPercent;
+            const rate = i * stepPercent; // 매수가 기준 단계 비율 = 수익률과 동일
 
-            const targetPrice = Math.round(currentPrice * (1 + rate));
+            const targetPrice = Math.round(basePrice * (1 + rate));
 
-            const rateFromCurrent = (rate * 100).toFixed(1);
+            // 현재가 대비 변동률
+            const rateFromCurrentNum =
+                currentPrice > 0
+                    ? ((targetPrice - currentPrice) / currentPrice) * 100
+                    : null;
 
             let roiPercent = null;
             let expectedPnl = null;
@@ -271,24 +293,30 @@ document.addEventListener('DOMContentLoaded', () => {
                     (targetPrice - purchasePrice) * quantity;
             }
 
-            const isCurrentRow = i === 0;
+            const isPurchaseRow = i === 0; // 매수 평단가(0단계) 강조
+            const isNearCurrentRow =
+                closestStepIndex !== null && i === closestStepIndex && !isPurchaseRow;
 
             let stepLabel = '';
+            const purchaseRateLabel = (rate * 100).toFixed(1);
 
             if (i > 0) {
-                stepLabel = `+${rateFromCurrent}% (${i}단계)`;
+                stepLabel = `+${purchaseRateLabel}% (${i}단계)`;
             } else if (i < 0) {
-                stepLabel = `${rateFromCurrent}% (${Math.abs(i)}단계)`;
+                stepLabel = `${purchaseRateLabel}% (${Math.abs(i)}단계)`;
             } else {
-                stepLabel = '★ 현재가 (0.0%)';
+                stepLabel = '★ 매수 평단가 (0.0%)';
             }
 
             let rowBgClass = 'hover:bg-slate-800/50';
             let rateTextColor = 'text-slate-400';
             let roiTextColor = 'text-slate-400';
 
-            if (i > 0) rateTextColor = 'text-red-400';
-            else if (i < 0) rateTextColor = 'text-blue-400';
+            if (rateFromCurrentNum !== null) {
+                if (rateFromCurrentNum > 0) rateTextColor = 'text-red-400';
+                else if (rateFromCurrentNum < 0) rateTextColor = 'text-blue-400';
+                else rateTextColor = 'text-slate-300';
+            }
 
             if (roiPercent !== null) {
                 if (roiPercent > 0)
@@ -299,21 +327,24 @@ document.addEventListener('DOMContentLoaded', () => {
                     roiTextColor = 'text-slate-300';
             }
 
-            if (isCurrentRow) {
+            if (isPurchaseRow) {
                 rowBgClass =
                     'bg-amber-500/20 border-2 border-amber-500 highlight-row';
+            } else if (isNearCurrentRow) {
+                rowBgClass =
+                    'bg-sky-500/10 border-2 border-sky-400/70';
             }
 
             html += `
-            <tr id="${isCurrentRow ? 'current-price-row' : ''}" class="${rowBgClass} transition-colors">
-                <td class="py-2.5 px-3 text-center font-medium ${isCurrentRow ? 'text-amber-300 font-bold' : 'text-slate-300'}">
-                    ${stepLabel}
+            <tr id="${isPurchaseRow ? 'current-price-row' : ''}" class="${rowBgClass} transition-colors">
+                <td class="py-2.5 px-3 text-center font-medium ${isPurchaseRow ? 'text-amber-300 font-bold' : isNearCurrentRow ? 'text-sky-300 font-semibold' : 'text-slate-300'}">
+                    ${stepLabel}${isNearCurrentRow ? ' <span class=\"text-[10px] text-sky-400\">(현재가)</span>' : ''}
                 </td>
-                <td class="py-2.5 px-3 text-right font-semibold ${isCurrentRow ? 'text-amber-400 text-base' : 'text-slate-100'}">
+                <td class="py-2.5 px-3 text-right font-semibold ${isPurchaseRow ? 'text-amber-400 text-base' : isNearCurrentRow ? 'text-sky-300' : 'text-slate-100'}">
                     ${formatNumber(targetPrice)}원
                 </td>
                 <td class="py-2.5 px-3 text-right ${rateTextColor} font-medium">
-                    ${i > 0 ? '+' : ''}${rateFromCurrent}%
+                    ${rateFromCurrentNum !== null ? (rateFromCurrentNum > 0 ? '+' : '') + rateFromCurrentNum.toFixed(2) + '%' : '-'}
                 </td>
                 <td class="py-2.5 px-3 text-right ${roiTextColor}">
                     ${roiPercent !== null ? (roiPercent > 0 ? '+' : '') + roiPercent.toFixed(2) + '%' : '-'}
